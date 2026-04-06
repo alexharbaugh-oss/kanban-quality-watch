@@ -1,80 +1,64 @@
 import streamlit as st
 import pandas as pd
 import re
-import json
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 
-st.set_page_config(
-    page_title="Kanban Quality Watch",
-    page_icon="🔍",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+st.set_page_config(page_title="Kanban Quality Watch", page_icon="🔍", layout="wide", initial_sidebar_state="expanded")
 
-# ============================================================
-# STYLING
-# ============================================================
 st.markdown("""
 <style>
-    .block-container { padding-top: 1.5rem; padding-bottom: 1rem; }
-    .metric-card {
-        background: #f8f9fa;
-        border-radius: 8px;
-        padding: 14px 18px;
-        margin-bottom: 8px;
-    }
-    .metric-label { font-size: 13px; color: #666; margin-bottom: 2px; }
-    .metric-value { font-size: 26px; font-weight: 600; }
-    .red-text { color: #c0392b; }
-    .orange-text { color: #d4730b; }
-    .yellow-text { color: #b8960a; }
-    .green-text { color: #1D9E75; }
-    .alert-card {
-        border-radius: 8px;
-        padding: 12px 16px;
-        margin-bottom: 8px;
-        border-left: 4px solid;
-    }
-    .alert-red { background: #fdf0ef; border-color: #c0392b; }
-    .alert-orange { background: #fef6ed; border-color: #d4730b; }
-    .alert-yellow { background: #fefbed; border-color: #b8960a; }
-    .alert-title { font-weight: 600; font-size: 14px; margin-bottom: 4px; }
-    .alert-meta { font-size: 12px; color: #666; margin-bottom: 6px; }
-    .alert-detail { font-size: 12px; color: #444; line-height: 1.6; }
-    .issue-line { font-size: 12px; padding: 2px 0; }
-    .scrap-badge {
-        background: #c0392b; color: white; padding: 1px 8px;
-        border-radius: 10px; font-size: 11px; font-weight: 600;
-    }
-    .rework-badge {
-        background: #2471a3; color: white; padding: 1px 8px;
-        border-radius: 10px; font-size: 11px; font-weight: 600;
-    }
-    .pending-badge {
-        background: #d4920b; color: white; padding: 1px 8px;
-        border-radius: 10px; font-size: 11px; font-weight: 600;
-    }
-    .stage-header {
-        background: #1a2332; color: white; padding: 8px 14px;
-        border-radius: 6px; margin: 16px 0 10px 0;
-        font-weight: 600; font-size: 14px;
-    }
-    div[data-testid="stExpander"] { border: none; }
+    .block-container { padding-top: 1rem; padding-bottom: 1rem; max-width: 1100px; }
+    .main-header { background: #1a2332; color: white; padding: 14px 20px; border-radius: 8px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+    .main-header h1 { font-size: 20px; font-weight: 700; margin: 0; color: white; }
+    .main-header .sub { font-size: 12px; color: #94a3b8; }
+    .metric-row { display: flex; gap: 10px; margin-bottom: 16px; }
+    .metric-box { flex: 1; background: #f4f4f4; border-radius: 8px; padding: 12px 16px; }
+    .metric-box .label { font-size: 11px; color: #666; margin-bottom: 2px; }
+    .metric-box .val { font-size: 22px; font-weight: 700; }
+    .metric-box .msub { font-size: 10px; color: #999; margin-top: 2px; }
+    .val-red { color: #c0392b; }
+    .val-orange { color: #d4730b; }
+    .val-green { color: #1D9E75; }
+    .section-red { background: #c0392b; color: white; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 13px; margin: 18px 0 10px; }
+    .section-orange { background: #d4730b; color: white; padding: 8px 14px; border-radius: 6px; font-weight: 700; font-size: 13px; margin: 18px 0 10px; }
+    .stage-hdr { background: #1a2332; color: white; padding: 7px 14px; border-radius: 5px; font-weight: 600; font-size: 13px; margin: 12px 0 8px; display: flex; justify-content: space-between; }
+    .alert-card { border-radius: 6px; padding: 12px 14px 10px 18px; margin-bottom: 8px; border-left: 4px solid; }
+    .card-red { background: #fdf0ef; border-color: #c0392b; }
+    .card-orange { background: #fef6ed; border-color: #d4730b; }
+    .card-yellow { background: #fefbed; border-color: #b8960a; }
+    .sev-badge { display: inline-block; padding: 1px 10px; border-radius: 3px; font-size: 10px; font-weight: 700; color: white; margin-right: 8px; }
+    .badge-red { background: #c0392b; }
+    .badge-orange { background: #d4730b; }
+    .badge-yellow { background: #b8960a; }
+    .part-name { font-weight: 700; font-size: 14px; color: #1a1a1a; display: inline; }
+    .part-meta { font-size: 11px; color: #666; margin-top: 2px; }
+    .history-label { font-size: 10px; font-weight: 700; color: #888; margin-top: 6px; letter-spacing: 0.5px; }
+    .history-line { font-size: 12px; color: #444; padding: 1px 0; line-height: 1.5; }
+    .disp-scrap { background: #c0392b; color: white; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+    .disp-rework { background: #2471a3; color: white; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+    .disp-pending { background: #d4920b; color: white; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+    .disp-uai { background: #1D9E75; color: white; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+    .disp-void { background: #888; color: white; padding: 0 6px; border-radius: 8px; font-size: 10px; font-weight: 600; }
+    .cell-tag { display: inline-block; background: #2471a3; color: white; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: 600; margin-left: 8px; }
+    .yellow-summary { background: #fefbed; border-left: 4px solid #b8960a; border-radius: 4px; padding: 10px 14px; margin: 8px 0; font-size: 12px; color: #444; }
+    .yellow-summary strong { color: #b8960a; }
+    .priority-box { background: #fdf0ef; border-left: 4px solid #c0392b; border-radius: 4px; padding: 12px 16px; margin-top: 16px; }
+    .priority-box .title { font-weight: 700; font-size: 13px; color: #c0392b; margin-bottom: 6px; }
+    .priority-box .item { font-size: 12px; color: #333; line-height: 1.6; }
+    .summary-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 12px 0; }
+    .summary-cell { background: #f4f4f4; border-radius: 6px; padding: 10px 14px; }
+    .summary-cell .s-label { font-size: 10px; color: #666; }
+    .summary-cell .s-val { font-size: 20px; font-weight: 700; }
+    .stDeployButton { display: none; }
+    #MainMenu { visibility: hidden; }
+    footer { visibility: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
-
-# ============================================================
-# HELPER FUNCTIONS
-# ============================================================
-
-def normalize_part_number(pn):
-    """Strip suffixes to get base part number for matching."""
-    if not pn or not isinstance(pn, str):
-        return ""
+def normalize_pn(pn):
+    if not pn or not isinstance(pn, str) or pn == 'nan': return ""
     pn = pn.strip()
-    # Remove common suffixes: -X000-L00000, -S10, -X01, -X000, -L00000, etc.
     pn = re.sub(r'-X\d+-L\d+', '', pn)
     pn = re.sub(r'-X\d+$', '', pn)
     pn = re.sub(r'-S\d+$', '', pn)
@@ -82,491 +66,226 @@ def normalize_part_number(pn):
     pn = re.sub(r'-TPDT$', '', pn)
     return pn.strip()
 
+def get_codes(s):
+    if not s or not isinstance(s, str): return []
+    return re.findall(r'(?:COF|AFA|BLD)-(\w+)-', s)
 
-def extract_defect_codes(defect_str):
-    """Parse defect code string to extract individual codes."""
-    if not defect_str or not isinstance(defect_str, str):
-        return []
-    codes = re.findall(r'(?:COF|AFA|BLD)-(\w+)-', defect_str)
-    return codes
+def dbadge(d):
+    d = str(d).strip()
+    if d == 'Scrap': return '<span class="disp-scrap">SCRAP</span>'
+    elif d == 'Rework': return '<span class="disp-rework">REWORK</span>'
+    elif d == 'Use As Is': return '<span class="disp-uai">USE AS IS</span>'
+    elif d == 'Void': return '<span class="disp-void">VOID</span>'
+    elif not d or d == 'nan': return '<span class="disp-pending">PENDING</span>'
+    return f'<span style="font-size:10px;color:#666;">{d}</span>'
 
+def score(issues):
+    sc = sum(1 for i in issues if str(i.get('disp','')).strip() == 'Scrap')
+    wk = sum(1 for i in issues if 'WNK' in str(i.get('defect','')))
+    pn = sum(1 for i in issues if not str(i.get('disp','')).strip() or str(i.get('disp','')) == 'nan')
+    t = len(issues)
+    s = sc*10 + wk*3 + pn + t
+    if sc >= 2: sv = "RED"
+    elif sc >= 1 or t >= 3: sv = "ORANGE"
+    elif t >= 1: sv = "YELLOW"
+    else: sv = "CLEAN"
+    return sv, s, {'total': t, 'scraps': sc, 'wrinkles': wk, 'pending': pn}
 
-def score_part(issues):
-    """Score a part based on its quality history. Returns (severity, score)."""
-    scrap_count = sum(1 for i in issues if i.get('Issue Disposition Type', '') == 'Scrap')
-    wrinkle_count = sum(1 for i in issues if 'WNK' in str(i.get('Defect Code', '')))
-    pending_count = sum(1 for i in issues if not i.get('Issue Disposition Type', '').strip())
-    total = len(issues)
-
-    # Scoring
-    score = 0
-    score += scrap_count * 10
-    score += wrinkle_count * 3
-    score += pending_count * 1
-    score += total * 1
-
-    if scrap_count >= 2:
-        severity = "RED"
-    elif scrap_count >= 1 or total >= 3:
-        severity = "ORANGE"
-    elif total >= 1:
-        severity = "YELLOW"
-    else:
-        severity = "CLEAN"
-
-    return severity, score, {
-        'total': total,
-        'scraps': scrap_count,
-        'wrinkles': wrinkle_count,
-        'pending': pending_count,
-    }
-
-
-def parse_ion_data(df):
-    """Parse Ion quality issue data."""
-    issues = []
-    seen_ids = set()
-    for _, row in df.iterrows():
-        iid = str(row.get('Issue ID', ''))
-        if iid in seen_ids:
-            continue
-        seen_ids.add(iid)
-        issues.append({
-            'Issue ID': iid,
-            'Title': str(row.get('Title', '')).strip(),
-            'Description': str(row.get('Description', '')).strip(),
-            'Part Number': normalize_part_number(str(row.get('Part Number', ''))),
-            'Part Number Raw': str(row.get('Part Number', '')).strip(),
-            'Defect Code': str(row.get('Defect Code', '')),
-            'Issue Disposition Type': str(row.get('Issue Disposition Type', '')).strip(),
-            'Status': str(row.get('Status', '')).strip(),
-            'Day of Created': str(row.get('Day of Created', '')).strip(),
-            'Created By': str(row.get('Created By', '')).strip(),
-            'Serial Number': str(row.get('Serial Number', '')).strip(),
-        })
-    return issues
-
-
-def parse_jira_data(df):
-    """Parse Jira Kanban data."""
-    status_map = {
-        'Open': 'Ready to Schedule',
-        'Scheduled': 'Scheduled',
-        'Kit': 'Material Cutting',
-        'Ready to Laminate': 'Ready to Layup',
-        'Laminate': 'Layup',
-        'Ready to Cure': 'Ready to Cure',
-    }
-
-    parts = []
-    for _, row in df.iterrows():
-        jira_status = str(row.get('Status', '')).strip()
-        if jira_status not in status_map:
-            continue
-
-        summary = str(row.get('Summary', '')).strip()
-        part_desc = summary.split(' SN:')[0].strip() if ' SN:' in summary else summary
-        pn_raw = str(row.get('Custom field (Part Number)', '')).strip()
-
-        parts.append({
-            'ME Key': str(row.get('Issue key', '')).strip(),
-            'Summary': summary,
-            'Part Description': part_desc,
-            'Part Number': normalize_part_number(pn_raw),
-            'Part Number Raw': pn_raw,
-            'Pipeline Stage': status_map[jira_status],
-            'Jira Status': jira_status,
-        })
-    return parts
-
-
-def cross_reference(kanban_parts, quality_issues):
-    """Cross-reference Kanban parts against quality issues by part number."""
-    # Build index of quality issues by normalized part number
-    pn_index = defaultdict(list)
-    for issue in quality_issues:
-        pn = issue['Part Number']
-        if pn:
-            pn_index[pn].append(issue)
-
-    results = []
-    for part in kanban_parts:
-        pn = part['Part Number']
-        matched_issues = []
-
-        # Direct match
-        if pn and pn in pn_index:
-            matched_issues = pn_index[pn]
-
-        # Partial match (check if part number is contained in or contains quality PN)
-        if not matched_issues and pn:
-            for qpn, qissues in pn_index.items():
-                if pn in qpn or qpn in pn:
-                    matched_issues.extend(qissues)
-
-        # Deduplicate
-        seen = set()
-        unique_issues = []
-        for i in matched_issues:
-            if i['Issue ID'] not in seen:
-                seen.add(i['Issue ID'])
-                unique_issues.append(i)
-
-        severity, score, stats = score_part(unique_issues)
-
-        results.append({
-            **part,
-            'Severity': severity,
-            'Score': score,
-            'Stats': stats,
-            'Issues': unique_issues,
-        })
-
-    # Sort by score descending within each stage
-    results.sort(key=lambda x: -x['Score'])
-    return results
-
-
-def render_issue_line(issue):
-    """Render a single quality issue as HTML."""
-    date = issue.get('Day of Created', '')
-    title = issue.get('Title', '')
-    disp = issue.get('Issue Disposition Type', '').strip()
-
-    if disp == 'Scrap':
-        badge = '<span class="scrap-badge">SCRAP</span>'
-    elif disp == 'Rework':
-        badge = '<span class="rework-badge">REWORK</span>'
-    elif not disp or disp == 'nan':
-        badge = '<span class="pending-badge">PENDING</span>'
-    else:
-        badge = f'<span style="font-size:11px;color:#666;">{disp}</span>'
-
-    defect_codes = extract_defect_codes(issue.get('Defect Code', ''))
-    codes_str = ', '.join(defect_codes) if defect_codes else ''
-
-    return f'<div class="issue-line">{date} | {title} | {badge} {codes_str}</div>'
-
-
-def render_alert_card(part):
-    """Render an alert card for a flagged part."""
-    sev = part['Severity']
-    css_class = f"alert-{sev.lower()}"
-    stats = part['Stats']
-
-    me = part['ME Key']
-    desc = part['Part Description'][:60]
-    stage = part['Pipeline Stage']
-    total = stats['total']
-    scraps = stats['scraps']
-    wrinkles = stats['wrinkles']
-    pending = stats['pending']
-
-    issues_html = ""
-    # Show last 5 issues sorted by date
-    sorted_issues = sorted(part['Issues'], key=lambda x: x.get('Day of Created', ''))
-    for issue in sorted_issues[-5:]:
-        issues_html += render_issue_line(issue)
-
-    stats_parts = []
-    if scraps > 0:
-        stats_parts.append(f'<span class="red-text">{scraps} scraps</span>')
-    if wrinkles > 0:
-        stats_parts.append(f'{wrinkles} wrinkles')
-    if pending > 0:
-        stats_parts.append(f'<span class="orange-text">{pending} pending</span>')
-    stats_str = f"{total} issues: " + ", ".join(stats_parts) if stats_parts else f"{total} issues"
-
-    html = f"""
-    <div class="alert-card {css_class}">
-        <div class="alert-title">{desc}</div>
-        <div class="alert-meta">{me} | {stage} | {stats_str}</div>
-        <div class="alert-detail">{issues_html}</div>
-    </div>
-    """
-    return html
-
-
-# ============================================================
-# MAIN APP
-# ============================================================
-
-st.title("Kanban Quality Watch")
-st.caption("Cross-references your Jira production pipeline with Ion quality data to flag parts with quality history.")
-
-# Sidebar: Data upload
-with st.sidebar:
-    st.header("Data Upload")
-
-    st.subheader("Quality Issues (Ion)")
-    ion_files = st.file_uploader(
-        "Upload Ion CSV(s)",
-        type="csv",
-        accept_multiple_files=True,
-        key="ion",
-        help="Export from Ion. Can upload multiple files (e.g. weekly + monthly)."
-    )
-
-    st.subheader("Scrap Data (Ion)")
-    scrap_file = st.file_uploader(
-        "Upload Scrap CSV (optional)",
-        type="csv",
-        key="scrap",
-        help="Separate scrap export from Ion if available."
-    )
-
-    st.subheader("Production Schedule (Jira)")
-    jira_file = st.file_uploader(
-        "Upload Jira CSV",
-        type="csv",
-        key="jira",
-        help="Export from Jira Kanban board."
-    )
-
-    st.divider()
-
-    if st.button("Run Analysis", type="primary", use_container_width=True):
-        st.session_state['run'] = True
-
-    st.divider()
-    st.caption("Upload fresh CSVs anytime. Hit 'Run Analysis' to refresh the dashboard.")
-
-# ============================================================
-# ANALYSIS
-# ============================================================
-
-if ion_files and jira_file:
-    # Parse all quality data
-    all_quality_issues = []
-    for f in ion_files:
+def load_ion(files, sf=None):
+    seen, out = set(), []
+    for f in list(files) + ([sf] if sf else []):
+        if not f: continue
         try:
             df = pd.read_csv(f)
-            all_quality_issues.extend(parse_ion_data(df))
-        except Exception as e:
-            st.error(f"Error reading {f.name}: {e}")
+            for _, r in df.iterrows():
+                iid = str(r.get('Issue ID',''))
+                if iid in seen: continue
+                seen.add(iid)
+                out.append({'id': iid, 'title': str(r.get('Title','')).strip(), 'desc': str(r.get('Description','')).strip(),
+                    'pn': normalize_pn(str(r.get('Part Number',''))), 'pn_raw': str(r.get('Part Number','')).strip(),
+                    'defect': str(r.get('Defect Code','')), 'disp': str(r.get('Issue Disposition Type','')).strip(),
+                    'status': str(r.get('Status','')).strip(), 'date': str(r.get('Day of Created','')).strip(),
+                    'created_by': str(r.get('Created By','')).strip()})
+        except Exception as e: st.error(f"Error: {e}")
+    return out
 
-    if scrap_file:
-        try:
-            df = pd.read_csv(scrap_file)
-            # Add scrap issues, dedup against existing
-            existing_ids = {i['Issue ID'] for i in all_quality_issues}
-            scrap_issues = parse_ion_data(df)
-            for si in scrap_issues:
-                if si['Issue ID'] not in existing_ids:
-                    all_quality_issues.append(si)
-                    existing_ids.add(si['Issue ID'])
-        except Exception as e:
-            st.error(f"Error reading scrap file: {e}")
-
-    # Parse Jira
+def load_jira(f):
+    sm = {'Open':'Ready to Schedule','Scheduled':'Scheduled','Kit':'Material Cutting',
+          'Ready to Laminate':'Ready to Layup','Laminate':'Layup','Ready to Cure':'Ready to Cure'}
+    out = []
     try:
-        jira_df = pd.read_csv(jira_file)
-        kanban_parts = parse_jira_data(jira_df)
-    except Exception as e:
-        st.error(f"Error reading Jira file: {e}")
-        kanban_parts = []
+        df = pd.read_csv(f)
+        for _, r in df.iterrows():
+            js = str(r.get('Status','')).strip()
+            if js not in sm: continue
+            summary = str(r.get('Summary','')).strip()
+            name = summary.split(' SN:')[0].strip() if ' SN:' in summary else summary
+            sn = summary.split('SN:')[1].strip() if 'SN:' in summary else ''
+            pn = str(r.get('Custom field (Part Number)','')).strip()
+            out.append({'me': str(r.get('Issue key','')).strip(), 'name': name, 'sn': sn,
+                'pn': normalize_pn(pn), 'pn_raw': pn, 'stage': sm[js]})
+    except Exception as e: st.error(f"Error: {e}")
+    return out
 
-    if all_quality_issues and kanban_parts:
-        # Cross-reference
-        results = cross_reference(kanban_parts, all_quality_issues)
+def crossref(parts, issues):
+    idx = defaultdict(list)
+    for i in issues:
+        if i['pn']: idx[i['pn']].append(i)
+    results = []
+    for p in parts:
+        matched = list(idx.get(p['pn'], []))
+        if not matched and p['pn']:
+            for qpn, qi in idx.items():
+                if p['pn'] in qpn or qpn in p['pn']: matched.extend(qi)
+        seen, uniq = set(), []
+        for i in matched:
+            if i['id'] not in seen: seen.add(i['id']); uniq.append(i)
+        sv, sc, st2 = score(uniq)
+        results.append({**p, 'sev': sv, 'score': sc, 'stats': st2, 'issues': uniq})
+    results.sort(key=lambda x: -x['score'])
+    return results
 
-        flagged = [r for r in results if r['Severity'] != 'CLEAN']
-        red = [r for r in flagged if r['Severity'] == 'RED']
-        orange = [r for r in flagged if r['Severity'] == 'ORANGE']
-        yellow = [r for r in flagged if r['Severity'] == 'YELLOW']
-        clean = [r for r in results if r['Severity'] == 'CLEAN']
+def render_card(p):
+    sev = p['sev']
+    s = p['stats']
+    parts_s = []
+    if s['scraps']: parts_s.append(f"<span style='color:#c0392b;font-weight:600;'>{s['scraps']} scraps</span>")
+    if s['wrinkles']: parts_s.append(f"{s['wrinkles']} wrinkles")
+    if s['pending']: parts_s.append(f"<span style='color:#d4920b;'>{s['pending']} pending</span>")
+    stats_str = f"{s['total']} issues" + (": " + ", ".join(parts_s) if parts_s else "")
+    ck = f"cell_{p['me']}"
+    cv = st.session_state.get(ck, '')
+    cell_html = f'<span class="cell-tag">{cv}</span>' if cv else ''
+    hist = ""
+    for i in sorted(p['issues'], key=lambda x: x.get('date',''))[-6:]:
+        codes = get_codes(i.get('defect',''))
+        cs = f" ({', '.join(codes)})" if codes else ""
+        hist += f'<div class="history-line">{i["date"]} | {i["title"]} | {dbadge(i["disp"])}{cs}</div>'
+    return f"""<div class="alert-card card-{sev.lower()}">
+        <span class="sev-badge badge-{sev.lower()}">{sev}</span>
+        <span class="part-name">{p['name']}</span>{cell_html}
+        <div class="part-meta">{p['me']} | {p['stage']} | {stats_str}</div>
+        <div class="history-label">HISTORY:</div>{hist}</div>"""
 
-        # Top metrics
-        col1, col2, col3, col4, col5 = st.columns(5)
-        with col1:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">Pipeline parts</div>
-                <div class="metric-value">{len(results)}</div>
-            </div>""", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">Quality issues loaded</div>
-                <div class="metric-value">{len(all_quality_issues)}</div>
-            </div>""", unsafe_allow_html=True)
-        with col3:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">RED alerts</div>
-                <div class="metric-value red-text">{len(red)}</div>
-            </div>""", unsafe_allow_html=True)
-        with col4:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">ORANGE alerts</div>
-                <div class="metric-value orange-text">{len(orange)}</div>
-            </div>""", unsafe_allow_html=True)
-        with col5:
-            st.markdown(f"""<div class="metric-card">
-                <div class="metric-label">Flagged / Clean</div>
-                <div class="metric-value">{len(flagged)} / {len(clean)}</div>
-            </div>""", unsafe_allow_html=True)
+STAGES = ['Layup','Ready to Cure','Ready to Layup','Material Cutting','Scheduled','Ready to Schedule']
 
-        st.divider()
+with st.sidebar:
+    st.header("Data Upload")
+    ion_files = st.file_uploader("Quality Issues (Ion CSV)", type="csv", accept_multiple_files=True, key="ion")
+    scrap_file = st.file_uploader("Scrap Data (optional)", type="csv", key="scrap")
+    jira_file = st.file_uploader("Production Schedule (Jira CSV)", type="csv", key="jira")
+    st.divider()
 
-        # Stage order for display
-        stage_order = ['Layup', 'Ready to Cure', 'Ready to Layup', 'Material Cutting', 'Scheduled', 'Ready to Schedule']
+if ion_files and jira_file:
+    issues = load_ion(ion_files, scrap_file)
+    parts = load_jira(jira_file)
+    results = crossref(parts, issues)
+    flagged = [r for r in results if r['sev'] != 'CLEAN']
+    reds = [r for r in flagged if r['sev'] == 'RED']
+    oranges = [r for r in flagged if r['sev'] == 'ORANGE']
+    yellows = [r for r in flagged if r['sev'] == 'YELLOW']
+    cleans = [r for r in results if r['sev'] == 'CLEAN']
 
-        # Tab layout
-        tab_all, tab_red, tab_stage, tab_search = st.tabs(["All Alerts", "Red Alerts Only", "By Pipeline Stage", "Search by Part"])
+    # Sidebar cell assignments for layup parts
+    layup_f = [r for r in flagged if r['stage'] == 'Layup']
+    with st.sidebar:
+        if layup_f:
+            st.subheader("Cell Assignments (Layup)")
+            for lp in layup_f:
+                st.text_input(f"{lp['name'][:35]}", key=f"cell_{lp['me']}", placeholder="Cell...")
 
-        with tab_all:
-            if red:
-                st.markdown('<div class="stage-header">RED ALERT: Stop and plan before layup</div>', unsafe_allow_html=True)
-                for part in red:
-                    st.markdown(render_alert_card(part), unsafe_allow_html=True)
+    st.markdown(f"""<div class="main-header"><div><h1>Kanban Quality Watch</h1>
+        <div class="sub">Hand Layup | Ion + Jira cross-reference</div></div>
+        <div style="text-align:right;"><div class="sub">Generated: {datetime.now().strftime('%m/%d/%Y %I:%M %p')}</div></div></div>""", unsafe_allow_html=True)
 
-            if orange:
-                st.markdown('<div class="stage-header">ORANGE ALERT: Extra eyes needed</div>', unsafe_allow_html=True)
-                # Group by stage
-                for stage in stage_order:
-                    stage_parts = [p for p in orange if p['Pipeline Stage'] == stage]
-                    if stage_parts:
-                        st.markdown(f"**{stage}** ({len(stage_parts)})")
-                        for part in stage_parts:
-                            st.markdown(render_alert_card(part), unsafe_allow_html=True)
+    st.markdown(f"""<div class="metric-row">
+        <div class="metric-box"><div class="label">Pipeline parts</div><div class="val">{len(results)}</div><div class="msub">All stages</div></div>
+        <div class="metric-box"><div class="label">Quality issues</div><div class="val">{len(issues)}</div><div class="msub">From Ion</div></div>
+        <div class="metric-box"><div class="label">RED</div><div class="val val-red">{len(reds)}</div><div class="msub">Stop and plan</div></div>
+        <div class="metric-box"><div class="label">ORANGE</div><div class="val val-orange">{len(oranges)}</div><div class="msub">Extra eyes</div></div>
+        <div class="metric-box"><div class="label">Flagged / Clean</div><div class="val">{len(flagged)} <span style="font-size:14px;color:#999;">/ {len(cleans)}</span></div>
+        <div class="msub">{round(len(flagged)/max(len(results),1)*100)}% have history</div></div></div>""", unsafe_allow_html=True)
 
-            if yellow:
-                st.markdown('<div class="stage-header">YELLOW: Watch list</div>', unsafe_allow_html=True)
-                with st.expander(f"Show {len(yellow)} yellow alerts"):
-                    for stage in stage_order:
-                        stage_parts = [p for p in yellow if p['Pipeline Stage'] == stage]
-                        if stage_parts:
-                            st.markdown(f"**{stage}** ({len(stage_parts)})")
-                            for part in stage_parts:
-                                st.markdown(render_alert_card(part), unsafe_allow_html=True)
+    tab_floor, tab_ready, tab_up, tab_sum, tab_find = st.tabs(["On the Floor", "Ready to Layup", "Upstream", "Summary", "Search"])
 
-        with tab_red:
-            if red:
-                for part in red:
-                    st.markdown(render_alert_card(part), unsafe_allow_html=True)
-                    with st.expander(f"Full issue history: {part['Part Description'][:50]}"):
-                        for issue in sorted(part['Issues'], key=lambda x: x.get('Day of Created', '')):
-                            disp = issue.get('Issue Disposition Type', '') or 'Pending'
-                            codes = extract_defect_codes(issue.get('Defect Code', ''))
-                            st.markdown(
-                                f"**{issue['Day of Created']}** | {issue['Title']} | "
-                                f"*{disp}* | {', '.join(codes)} | ID: {issue['Issue ID']}"
-                            )
-            else:
-                st.success("No red alerts. Nice.")
+    with tab_floor:
+        st.markdown('<div class="section-red">PARTS ON THE FLOOR RIGHT NOW: Check these during your walk</div>', unsafe_allow_html=True)
+        for stg in ['Layup', 'Ready to Cure']:
+            sf = [r for r in flagged if r['stage'] == stg]
+            sa = len([r for r in results if r['stage'] == stg])
+            lbl = "IN LAYUP" if stg == 'Layup' else "READY TO CURE (about to go in autoclave)"
+            st.markdown(f'<div class="stage-hdr"><span>{lbl}</span><span>{len(sf)} flagged / {sa} total</span></div>', unsafe_allow_html=True)
+            if sf:
+                for p in sf: st.markdown(render_card(p), unsafe_allow_html=True)
+            else: st.success(f"All {stg.lower()} parts clean.")
 
-        with tab_stage:
-            for stage in stage_order:
-                stage_flagged = [r for r in flagged if r['Pipeline Stage'] == stage]
-                stage_clean_count = len([r for r in clean if r['Pipeline Stage'] == stage])
-                stage_total = len([r for r in results if r['Pipeline Stage'] == stage])
+    with tab_ready:
+        rtl = [r for r in results if r['stage'] == 'Ready to Layup']
+        rtlf = [r for r in rtl if r['sev'] != 'CLEAN']
+        st.markdown('<div class="section-orange">READY TO LAYUP: Plan before these go to the tool</div>', unsafe_allow_html=True)
+        st.markdown(f'<div class="stage-hdr"><span>READY TO LAYUP</span><span>{len(rtlf)} flagged / {len(rtl)} total</span></div>', unsafe_allow_html=True)
+        for p in [r for r in rtlf if r['sev'] in ('RED','ORANGE')]:
+            st.markdown(render_card(p), unsafe_allow_html=True)
+        yw = [r for r in rtlf if r['sev'] == 'YELLOW']
+        if yw:
+            with st.expander(f"YELLOW WATCH ({len(yw)} more in Ready to Layup)"):
+                for p in yw: st.markdown(render_card(p), unsafe_allow_html=True)
 
-                if stage_total > 0:
-                    st.markdown(
-                        f'<div class="stage-header">{stage}: {len(stage_flagged)} flagged / {stage_total} total</div>',
-                        unsafe_allow_html=True
-                    )
+    with tab_up:
+        for stg in ['Material Cutting','Scheduled','Ready to Schedule']:
+            sa = [r for r in results if r['stage'] == stg]
+            sf = [r for r in sa if r['sev'] != 'CLEAN']
+            if not sa: continue
+            st.markdown(f'<div class="stage-hdr"><span>{stg.upper()}</span><span>{len(sf)} flagged / {len(sa)} total</span></div>', unsafe_allow_html=True)
+            ro = [p for p in sf if p['sev'] in ('RED','ORANGE')]
+            yw = [p for p in sf if p['sev'] == 'YELLOW']
+            for p in ro: st.markdown(render_card(p), unsafe_allow_html=True)
+            if yw:
+                names = ", ".join([f"{p['name'][:35]} ({p['stats']['total']})" for p in yw[:6]])
+                extra = f", +{len(yw)-6} more" if len(yw) > 6 else ""
+                st.markdown(f'<div class="yellow-summary"><strong>YELLOW WATCH ({len(yw)}):</strong> {names}{extra}</div>', unsafe_allow_html=True)
+                with st.expander(f"Show all {len(yw)} yellow in {stg}"):
+                    for p in yw: st.markdown(render_card(p), unsafe_allow_html=True)
+            if not sf: st.markdown("*All clean.*")
 
-                    if stage_flagged:
-                        for part in sorted(stage_flagged, key=lambda x: -x['Score']):
-                            st.markdown(render_alert_card(part), unsafe_allow_html=True)
-                    else:
-                        st.markdown("*All parts clean in this stage.*")
+    with tab_sum:
+        st.markdown(f'<div class="stage-hdr"><span>PIPELINE QUALITY SUMMARY</span><span></span></div>', unsafe_allow_html=True)
+        st.markdown(f"""<div class="summary-grid">
+            <div class="summary-cell"><div class="s-label">Total pipeline</div><div class="s-val">{len(results)}</div></div>
+            <div class="summary-cell"><div class="s-label">With quality history</div><div class="s-val val-red">{len(flagged)} ({round(len(flagged)/max(len(results),1)*100)}%)</div></div>
+            <div class="summary-cell"><div class="s-label">Clean</div><div class="s-val val-green">{len(cleans)} ({round(len(cleans)/max(len(results),1)*100)}%)</div></div></div>""", unsafe_allow_html=True)
+        td = []
+        for stg in STAGES:
+            sp = [r for r in flagged if r['stage'] == stg]
+            td.append({'Stage': stg, 'RED': len([p for p in sp if p['sev']=='RED']), 'ORANGE': len([p for p in sp if p['sev']=='ORANGE']),
+                'YELLOW': len([p for p in sp if p['sev']=='YELLOW']), 'Total': len(sp)})
+        st.dataframe(pd.DataFrame(td), use_container_width=True, hide_index=True)
+        with st.expander("Full flagged parts table"):
+            rows = [{'Severity': r['sev'], 'Stage': r['stage'], 'ME Key': r['me'], 'Part Name': r['name'][:50],
+                'PN': r.get('pn_raw',''), 'Issues': r['stats']['total'], 'Scraps': r['stats']['scraps'],
+                'Wrinkles': r['stats']['wrinkles'], 'Pending': r['stats']['pending']} for r in flagged]
+            if rows: st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
-        with tab_search:
-            search = st.text_input("Search by part name, part number, or ME key")
-            if search:
-                search_upper = search.upper()
-                matches = [r for r in results if
-                    search_upper in r['Part Description'].upper() or
-                    search_upper in r['Part Number'].upper() or
-                    search_upper in r.get('Part Number Raw', '').upper() or
-                    search_upper in r['ME Key'].upper()]
-
-                if matches:
-                    st.markdown(f"**{len(matches)} results:**")
-                    for part in matches:
-                        if part['Severity'] != 'CLEAN':
-                            st.markdown(render_alert_card(part), unsafe_allow_html=True)
-                        else:
-                            st.markdown(
-                                f"✅ **{part['Part Description'][:55]}** | "
-                                f"{part['ME Key']} | {part['Pipeline Stage']} | No quality history"
-                            )
-                else:
-                    st.info("No matches found.")
-
-        # ============================================================
-        # SUMMARY TABLE (expandable)
-        # ============================================================
-        st.divider()
-        with st.expander("Full pipeline summary table"):
-            summary_data = []
-            for r in results:
-                if r['Severity'] != 'CLEAN':
-                    summary_data.append({
-                        'Severity': r['Severity'],
-                        'Stage': r['Pipeline Stage'],
-                        'ME Key': r['ME Key'],
-                        'Part': r['Part Description'][:50],
-                        'PN': r.get('Part Number Raw', ''),
-                        'Issues': r['Stats']['total'],
-                        'Scraps': r['Stats']['scraps'],
-                        'Wrinkles': r['Stats']['wrinkles'],
-                        'Pending': r['Stats']['pending'],
-                    })
-
-            if summary_data:
-                summary_df = pd.DataFrame(summary_data)
-                st.dataframe(
-                    summary_df,
-                    use_container_width=True,
-                    hide_index=True,
-                    column_config={
-                        'Severity': st.column_config.TextColumn(width="small"),
-                        'Stage': st.column_config.TextColumn(width="medium"),
-                        'Scraps': st.column_config.NumberColumn(format="%d"),
-                        'Wrinkles': st.column_config.NumberColumn(format="%d"),
-                    }
-                )
-
-        # ============================================================
-        # QUALITY ISSUE SUMMARY
-        # ============================================================
-        with st.expander("Quality issue summary (loaded data)"):
-            defect_counts = defaultdict(int)
-            disp_counts = defaultdict(int)
-            for i in all_quality_issues:
-                codes = extract_defect_codes(i.get('Defect Code', ''))
-                for code in codes:
-                    defect_counts[code] += 1
-                d = i.get('Issue Disposition Type', '').strip()
-                disp_counts[d if d else 'Pending'] += 1
-
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Defect types:**")
-                for code, count in sorted(defect_counts.items(), key=lambda x: -x[1]):
-                    st.markdown(f"- {code}: {count}")
-            with col2:
-                st.markdown("**Dispositions:**")
-                for disp, count in sorted(disp_counts.items(), key=lambda x: -x[1]):
-                    st.markdown(f"- {disp}: {count}")
-
+    with tab_find:
+        q = st.text_input("Search by part name, part number, or ME key", placeholder="e.g. FORWARD FLOOR, 210029, ME-45588")
+        if q:
+            qu = q.upper()
+            hits = [r for r in results if qu in r['name'].upper() or qu in r.get('pn','').upper() or qu in r.get('pn_raw','').upper() or qu in r['me'].upper()]
+            if hits:
+                st.markdown(f"**{len(hits)} results:**")
+                for p in sorted(hits, key=lambda x: -x['score']):
+                    if p['sev'] != 'CLEAN': st.markdown(render_card(p), unsafe_allow_html=True)
+                    else: st.markdown(f"✅ **{p['name'][:55]}** | {p['me']} | {p['stage']} | No quality history")
+            else: st.info("No matches.")
 else:
-    # Landing page
-    st.info("Upload your Ion quality CSV(s) and Jira Kanban CSV in the sidebar to get started.")
+    st.markdown("""<div class="main-header"><div><h1>Kanban Quality Watch</h1>
+        <div class="sub">Hand Layup | Upload data to get started</div></div></div>""", unsafe_allow_html=True)
+    st.markdown("""**How to use:**
+1. Export quality issues from Ion (CSV). Upload multiple files if needed.
+2. Export your Jira Kanban board (CSV).
+3. Upload both in the sidebar. Dashboard builds automatically.
 
-    st.markdown("""
-    **How to use:**
-    1. Export your quality issues from Ion (CSV). You can upload multiple files (e.g. weekly + monthly + scrap).
-    2. Export your Jira Kanban board (CSV export from Jira).
-    3. Upload both in the sidebar and hit **Run Analysis**.
-    4. The dashboard will cross-reference every part in your pipeline against quality history and flag anything with issues.
+**Severity:** 🔴 RED = 2+ scraps (stop and plan) | 🟠 ORANGE = 1 scrap or 3+ issues (extra eyes) | 🟡 YELLOW = 1-2 issues (watch list) | ✅ CLEAN
 
-    **Severity levels:**
-    - **RED**: 2+ scrap events on the part number. Stop and plan before layup.
-    - **ORANGE**: 1 scrap event, or 3+ total issues. Extra eyes needed.
-    - **YELLOW**: 1-2 issues, no scrap. Watch list.
-    - **CLEAN**: No quality history. Standard process.
-
-    **Pipeline stages tracked:** Ready to Schedule, Scheduled, Material Cutting, Ready to Layup, Layup, Ready to Cure
+**Tabs:** On the Floor (layup + cure) → Ready to Layup → Upstream → Summary → Search
     """)
